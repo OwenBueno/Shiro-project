@@ -1,134 +1,35 @@
-import os
 import discord
 from discord.ext import commands, tasks
+from config import DISCORD_TOKEN, YTDL_FORMAT_OPTIONS
 import yt_dlp as youtube_dl
-from collections import deque
-from datetime import datetime, timedelta
+import commands as bot_commands
+from commands import song_queues, play_next, deque
 
-# Set up intents
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.voice_states = True
 
-# Set up the bot with the intents and command prefix
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# Set up yt-dlp options
-youtube_dl.utils.bug_reports_message = lambda: ''
-ytdl_format_options = {
-    'format': 'bestaudio/best',
-    'outtmpl': '%(title).100s.%(ext)s',
-    'restrictfilenames': True,
-    'noplaylist': False,
-    'nocheckcertificate': True,
-    'ignoreerrors': False,
-    'logtostderr': False,
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'ytsearch1',
-    'source_address': '0.0.0.0',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'opus',
-        'preferredquality': '320'
-    }],
-    'extract_flat': True
-}
-
-ffmpeg_options = {
-    'options': '-vn -b:a 320k -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 10000000 -http_persistent 1 -user_agent "Mozilla/5.0"'
-}
-
-ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
-
-class YTDLSource(discord.PCMVolumeTransformer):
-    def __init__(self, source, *, data, filename, volume=0.5):
-        super().__init__(source, volume=volume)
-        self.data = data
-        self.title = data.get('title')
-        self.url = data.get('url')
-        self.filename = filename
-
-    @classmethod
-    async def from_url(cls, url, *, loop=None, download=True):
-        loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=download))
-
-        if 'entries' in data:
-            return data['entries']
-
-        filename = ytdl.prepare_filename(data)
-        if not os.path.exists(filename):
-            filename = f"{os.path.splitext(filename)[0]}.opus"
-
-        return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data, filename=filename)
-
-# Dictionary to manage song queues and last activity per guild
-song_queues = {}
-last_activity = {}
-
-# Background task to check if the bot is alone in the voice channel
-@tasks.loop(minutes=1)
-async def check_if_alone():
-    for guild_id, vc in [(vc.guild.id, vc) for vc in bot.voice_clients]:
-        if len(vc.channel.members) == 1 and vc.channel.members[0] == bot.user:
-            if last_activity.get(guild_id) is None:
-                last_activity[guild_id] = datetime.now()
-            elif datetime.now() - last_activity[guild_id] > timedelta(minutes=5):
-                await vc.disconnect()
-                last_activity[guild_id] = None
-        else:
-            last_activity[guild_id] = None
 
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     check_if_alone.start()
 
-# Function to play the next song in the queue
-async def play_next(ctx):
-    guild_id = ctx.guild.id
-
-    # Check if the voice client is still connected
-    if ctx.voice_client is None or not ctx.voice_client.is_connected():
-        return  # Do not attempt to play if the bot is not connected to a voice channel
-
-    if guild_id in song_queues and song_queues[guild_id]:
-        next_url = song_queues[guild_id].popleft()
-        player_data = await YTDLSource.from_url(next_url, loop=bot.loop, download=True)
-
-        if isinstance(player_data, list):
-            player_data = player_data[0]
-
-        filename = player_data.filename
-
-        def after_playing(error):
-            if error:
-                print(f'Player error: {error}')
-            # Check again if the bot is still connected before trying to play next
-            if ctx.voice_client and ctx.voice_client.is_connected():
-                bot.loop.create_task(play_next(ctx))
-            bot.loop.call_later(1, delete_file, filename)
-
-        player = discord.FFmpegPCMAudio(filename, **ffmpeg_options)
-        ctx.voice_client.play(player, after=after_playing)
-        ctx.voice_client.current_song = filename  # Track the current song file
-        await ctx.send(f'**Now playing:** {player_data.title}')
-        last_activity[guild_id] = datetime.now()
-
-# Function to delete the downloaded file
-def delete_file(filename):
-    try:
-        if os.path.exists(filename):
-            os.remove(filename)
-            print(f"Deleted file: {filename}")
+@tasks.loop(minutes=1)
+async def check_if_alone():
+    for guild_id, vc in [(vc.guild.id, vc) for vc in bot.voice_clients]:
+        if len(vc.channel.members) == 1 and vc.channel.members[0] == bot.user:
+            if bot_commands.last_activity.get(guild_id) is None:
+                bot_commands.last_activity[guild_id] = datetime.now()
+            elif datetime.now() - bot_commands.last_activity[guild_id] > timedelta(minutes=5):
+                await vc.disconnect()
+                bot_commands.last_activity[guild_id] = None
         else:
-            print(f"File not found: {filename}")
-    except Exception as e:
-        print(f"Error deleting file {filename}: {e}")
+            bot_commands.last_activity[guild_id] = None
 
-# Command to join the voice channel
 @bot.command(name='vente', help='Tells the bot to join the voice channel')
 async def join(ctx):
     if not ctx.message.author.voice:
@@ -137,33 +38,26 @@ async def join(ctx):
 
     channel = ctx.message.author.voice.channel
     await channel.connect()
-    last_activity[ctx.guild.id] = datetime.now()
+    bot_commands.last_activity[ctx.guild.id] = datetime.now()
 
-# Command to leave the voice channel and clear downloaded files and the queue
 @bot.command(name='vete', help='Makes the bot leave the voice channel and clears the music queue')
 async def leave(ctx):
     voice_client = ctx.voice_client
     guild_id = ctx.guild.id
 
     if voice_client:
-        # Stop playback if currently playing
         if voice_client.is_playing() or voice_client.is_paused():
             voice_client.stop()
 
-        # Clear the current downloaded file if available
         current_song = getattr(ctx.voice_client, 'current_song', None)
         if current_song:
-            delete_file(current_song)
+            bot_commands.delete_file(current_song)
 
-        # Disconnect the bot from the voice channel
         await voice_client.disconnect()
+        bot_commands.last_activity.pop(guild_id, None)
 
-        # Clear last activity for the guild
-        last_activity.pop(guild_id, None)
-
-        # Clear the song queue completely
-        if guild_id in song_queues:
-            song_queues[guild_id].clear()
+        if guild_id in bot_commands.song_queues:
+            bot_commands.song_queues[guild_id].clear()
 
         await ctx.send("**Disconnected and cleared the queue.**")
 
@@ -181,11 +75,11 @@ async def play(ctx, *, query):
 
         async with ctx.typing():
             # Extract minimal metadata (do not download) to quickly get playlist or video details
-            extract_flat_opts = ytdl_format_options.copy()
+            extract_flat_opts = YTDL_FORMAT_OPTIONS.copy()
             extract_flat_opts['extract_flat'] = 'in_playlist'
             temp_ytdl = youtube_dl.YoutubeDL(extract_flat_opts)
 
-            data = await bot.loop.run_in_executor(None, lambda: temp_ytdl.extract_info(query, download=False))
+            data = await ctx.bot.loop.run_in_executor(None, lambda: temp_ytdl.extract_info(query, download=False))
             
             if ctx.guild.id not in song_queues:
                 song_queues[ctx.guild.id] = deque()
@@ -199,7 +93,7 @@ async def play(ctx, *, query):
                     # Play the first song immediately by extracting complete metadata
                     song = entries[0]
                     song_queues[ctx.guild.id].append(song['url'])
-                    await ctx.send(f'**Playing first song from the playlist:** {song['title']}')
+                    await ctx.send(f'**Playing first song from the playlist:** {song["title"]}')
  
                     # Add the rest of the songs asynchronously
                     async def add_remaining_songs():
@@ -208,16 +102,16 @@ async def play(ctx, *, query):
                         await ctx.send(f'**Added remaining {len(entries) - 1} songs from the playlist to the queue.**')
 
                     # Schedule the addition of the remaining songs
-                    bot.loop.create_task(add_remaining_songs())
+                    ctx.bot.loop.create_task(add_remaining_songs())
 
                 else:  # If there's only one entry, treat it as a single video
                     song = entries[0]
                     song_queues[ctx.guild.id].append(song['url'])
-                    await ctx.send(f'**Added to queue:** {song['title']}')
+                    await ctx.send(f'**Added to queue:** {song["title"]}')
 
             else:  # If it's a single video (not a playlist)
                 song_queues[ctx.guild.id].append(data['webpage_url'])
-                await ctx.send(f'**Added to queue:** {data['fulltitle']}')
+                await ctx.send(f'**Added to queue:** {data["fulltitle"]}')
 
             # If nothing is currently playing, start playing
             if not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
@@ -225,6 +119,7 @@ async def play(ctx, *, query):
 
     except Exception as e:
         await ctx.send(f"An error occurred: {str(e)}")
+        print(str(e))
 
 # Command to skip the current song and play the next if available
 @bot.command(name='salta', help='Skips the current song and plays the next one in the queue if available')
@@ -266,5 +161,4 @@ async def show_queue(ctx):
         queue_list = "\n".join([f"{i + 1}. {url}" for i, url in enumerate(song_queues[guild_id])])
         await ctx.send(f"**Current queue:**\n{queue_list}")
 
-bot.run('#')
-# #
+bot.run(DISCORD_TOKEN)
