@@ -1,8 +1,8 @@
-### cogs/chat_cog.py
 import discord
 from discord.ext import commands
 from openai import OpenAI
 from config import OPENAI_API_KEY
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 class ChatCog(commands.Cog):
@@ -12,17 +12,19 @@ class ChatCog(commands.Cog):
     @commands.command(name='chat', help='Chat with the bot using OpenAI')
     async def chat(self, ctx, *, prompt: str):
         try:
-            response = client.chat.completions.create(engine="gpt-3.5-turbo",
-            messages=[
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",  # Changed from engine to model
+                messages=[
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-            max_tokens=150)
+                max_tokens=150
+            )
             if isinstance(ctx.channel, discord.DMChannel):
                 # Send the response in a private message
-                await ctx.author.send(response.choices[0].text.strip())
+                await ctx.author.send(response.choices[0].message.content.strip())  # Fixed response access
             else:
                 # Send the response in the channel where the command was issued
                 await ctx.send(response.choices[0].message.content.strip())
@@ -38,14 +40,16 @@ class ChatCog(commands.Cog):
         # If the message is a DM to the bot, respond using OpenAI
         if isinstance(message.channel, discord.DMChannel):
             try:
-                response = client.chat.completions.create(model="gpt-3.5-turbo",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": message.content
-                    }
-                ],
-                max_tokens=150)
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": message.content
+                        }
+                    ],
+                    max_tokens=150
+                )
                 await message.channel.send(response.choices[0].message.content.strip())
             except Exception as e:
                 await message.channel.send(f"An error occurred: {str(e)}")

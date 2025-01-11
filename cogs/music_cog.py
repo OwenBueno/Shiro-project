@@ -46,20 +46,33 @@ class MusicCog(commands.Cog):
         guild_id = ctx.guild.id
 
         if voice_client:
+            # Stop any ongoing playback or pause
             if voice_client.is_playing() or voice_client.is_paused():
                 voice_client.stop()
 
-            current_song = getattr(ctx.voice_client, 'current_song', None)
+            # Remove the current song's file if it exists
+            current_song = getattr(voice_client, 'current_song', None)
             if current_song:
-                await delete_file(current_song)
+                try:
+                    await delete_file(current_song)
+                except Exception as e:
+                    print(f"Error deleting file: {e}")
 
-            await voice_client.disconnect()
+            # Disconnect the bot from the voice channel
+            await voice_client.disconnect(force=True)  # Use `force=True` to ensure disconnection
+
+            # Remove guild activity tracking
             self.last_activity.pop(guild_id, None)
 
+            # Clear the music queue for the guild
             if guild_id in song_queues:
                 song_queues[guild_id].clear()
 
+            # Notify the user
             await ctx.send("**Disconnected and cleared the queue.**")
+        else:
+            await ctx.send("The bot is not connected to a voice channel.")
+
 
     @commands.command(name='canta', help='Joins the voice channel and plays a song by URL, searches for the song name, or plays a playlist')
     async def play(self, ctx, *, query):
@@ -82,16 +95,14 @@ class MusicCog(commands.Cog):
                     song_queues[ctx.guild.id] = deque()
 
                 if 'entries' in data:  # If it's a playlist
-                    # Extract the list of entries
                     entries = data['entries']
 
-                    # If there are more than one entries, treat as a playlist
-                    if len(entries) > 1:
-                        # Play the first song immediately by extracting complete metadata
+                    if len(entries) > 1:  # Treat as a playlist
+                        # Play the first song immediately
                         song = entries[0]
                         song_queues[ctx.guild.id].append(song['url'])
-                        await ctx.send(f'**Playing first song from the playlist:** {song['title']}')
-    
+                        await ctx.send(f'**Playing first song from the playlist:** {song["title"]}')
+
                         # Add the rest of the songs asynchronously
                         async def add_remaining_songs():
                             for entry in entries[1:]:
@@ -99,12 +110,13 @@ class MusicCog(commands.Cog):
                             await ctx.send(f'**Added remaining {len(entries) - 1} songs from the playlist to the queue.**')
 
                         # Schedule the addition of the remaining songs
-                        commands.loop.create_task(add_remaining_songs())
+                        asyncio.create_task(add_remaining_songs())
 
-                    else:  # If there's only one entry, treat it as a single video
+                    else:  # If there's only one entry
                         song = entries[0]
                         song_queues[ctx.guild.id].append(song['url'])
-                        await ctx.send(f'**Added to queue:** {song['title']}')
+                        await ctx.send(f'**Added to queue:** {song["title"]}')
+
 
                 else:  # If it's a single video (not a playlist)
                     song_queues[ctx.guild.id].append(data['webpage_url'])

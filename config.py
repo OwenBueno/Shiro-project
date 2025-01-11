@@ -6,9 +6,11 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
+DOWNLOAD_FOLDER = 'downloads'
+
 YTDL_FORMAT_OPTIONS = {
     'format': 'bestaudio/best',
-    'outtmpl': '%(title).100s.%(ext)s',
+    'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title).100s.%(ext)s'),  # Save in the folder
     'restrictfilenames': True,
     'noplaylist': False,
     'nocheckcertificate': True,

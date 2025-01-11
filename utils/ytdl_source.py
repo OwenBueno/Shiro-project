@@ -1,6 +1,6 @@
 import discord
 import yt_dlp as youtube_dl
-from config import YTDL_FORMAT_OPTIONS, FFMPEG_OPTIONS
+from config import YTDL_FORMAT_OPTIONS, FFMPEG_OPTIONS, DOWNLOAD_FOLDER
 import os
 import asyncio
 
@@ -16,6 +16,11 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
     @classmethod
     async def from_url(cls, url, *, download=True):
+        # Ensure the download folder exists
+        if not os.path.exists(DOWNLOAD_FOLDER):
+            os.makedirs(DOWNLOAD_FOLDER)
+
+        # Extract info and download
         data = await asyncio.to_thread(ytdl.extract_info, url, download=download)
 
         if 'entries' in data:
