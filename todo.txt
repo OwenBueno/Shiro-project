@@ -1,0 +1,5 @@
+
+
+# music
+- Cuanto esta en un canal sola y alguien la invoca deberia moverse a un canal de voz.
+- She should disconnect from the voice channel when alone for 2 minutes or last song was more than 2 minutes ago.

@@ -13,3 +13,4 @@ run bot
 ```
 python bot.py
 ```
+python 3.12.8

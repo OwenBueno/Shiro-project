@@ -73,7 +73,6 @@ class MusicCog(commands.Cog):
         else:
             await ctx.send("The bot is not connected to a voice channel.")
 
-
     @commands.command(name='canta', help='Joins the voice channel and plays a song by URL, searches for the song name, or plays a playlist')
     async def play(self, ctx, *, query):
         try:
