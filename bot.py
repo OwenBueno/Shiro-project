@@ -3,6 +3,9 @@ from discord.ext import commands
 import asyncio
 from config import DISCORD_TOKEN
 
+if not DISCORD_TOKEN:
+    raise ValueError("DISCORD_TOKEN environment variable is not set")
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -14,6 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
+    print("Database connected successfully!")
 
 async def load_extensions():
     await bot.load_extension('cogs.music_cog')

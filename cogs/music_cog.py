@@ -22,12 +22,33 @@ class MusicCog(commands.Cog):
     async def check_if_alone(self):
         for guild_id, vc in [(vc.guild.id, vc) for vc in self.bot.voice_clients]:
             if len(vc.channel.members) == 1 and vc.channel.members[0] == self.bot.user:
+                # Start tracking inactivity if not already tracking
                 if self.last_activity.get(guild_id) is None:
                     self.last_activity[guild_id] = datetime.now()
+                # Check if inactive for more than 5 minutes
                 elif datetime.now() - self.last_activity[guild_id] > timedelta(minutes=5):
-                    await vc.disconnect()
+                    # Stop any ongoing playback
+                    if vc.is_playing() or vc.is_paused():
+                        vc.stop()
+                    
+                    # Clean up current song file if it exists
+                    current_song = getattr(vc, 'current_song', None)
+                    if current_song:
+                        try:
+                            await delete_file(current_song)
+                        except Exception as e:
+                            print(f"Error deleting file in check_if_alone: {e}")
+                    
+                    # Clear the queue for this guild
+                    if guild_id in song_queues:
+                        song_queues[guild_id].clear()
+                    
+                    # Disconnect from voice channel
+                    await vc.disconnect(force=True)
                     self.last_activity[guild_id] = None
+                    print(f"Bot disconnected from guild {guild_id} due to inactivity")
             else:
+                # Reset inactivity timer when not alone
                 self.last_activity[guild_id] = None
 
     @commands.command(name='vente', help='Tells the bot to join the voice channel')
@@ -124,9 +145,21 @@ class MusicCog(commands.Cog):
                 # If nothing is currently playing, start playing
                 if not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
                     await play_next(ctx)
+                self.last_activity[ctx.guild.id] = datetime.now()
 
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            error_message = str(e)
+            if "HTTP Error 403" in error_message:
+                await ctx.send("**Error:** Unable to access the video. It might be age-restricted or private.")
+            elif "HTTP Error 404" in error_message:
+                await ctx.send("**Error:** The video was not found. The URL might be invalid or the video was deleted.")
+            elif "Unsupported URL" in error_message:
+                await ctx.send("**Error:** The provided URL is not supported. Please provide a valid YouTube URL.")
+            elif "No video formats found" in error_message:
+                await ctx.send("**Error:** Could not extract audio from this video. It might be unavailable in your region.")
+            else:
+                await ctx.send("An error occurred while processing your request.")
+            print(f"Error details: {error_message}, {e}")
 
     # Command to skip the current song and play the next if available
     @commands.command(name='salta', help='Skips the current song and plays the next one in the queue if available')
@@ -136,6 +169,7 @@ class MusicCog(commands.Cog):
             await ctx.send("There is no song playing to skip.")
         else:
             voice_client.stop()
+            self.last_activity[ctx.guild.id] = datetime.now()
             await ctx.send("**Song has been skipped.**")
 
     # Command to pause the music
@@ -146,6 +180,7 @@ class MusicCog(commands.Cog):
             await ctx.send("There is no song currently playing to pause.")
         else:
             voice_client.pause()  # Pause the current playback
+            self.last_activity[ctx.guild.id] = datetime.now()
             await ctx.send("**Playback has been paused.**")
 
     # Command to resume the music
@@ -156,6 +191,7 @@ class MusicCog(commands.Cog):
             await ctx.send("There is no paused song to resume.")
         else:
             voice_client.resume()  # Resume the paused playback
+            self.last_activity[ctx.guild.id] = datetime.now()
             await ctx.send("**Playback has been resumed.**")
 
     # Command to show the current queue
@@ -166,6 +202,7 @@ class MusicCog(commands.Cog):
             await ctx.send("The queue is currently empty.")
         else:
             queue_list = "\n".join([f"{i + 1}. {url}" for i, url in enumerate(song_queues[guild_id])])
+            self.last_activity[ctx.guild.id] = datetime.now()
             await ctx.send(f"**Current queue:**\n{queue_list}")
 
 async def setup(bot):
