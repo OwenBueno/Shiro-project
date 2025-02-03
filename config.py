@@ -7,7 +7,7 @@ def load_config() -> None:
     load_dotenv(override=True)
 
     # Validate required environment variables
-    required_vars = ['DISCORD_TOKEN', 'OPENAI_API_KEY', 'MONGODB_URI']
+    required_vars = ['DISCORD_TOKEN', 'OPENAI_API_KEY', 'MONGODB_URI', 'TELEGRAM_TOKEN']
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
         raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
@@ -23,6 +23,8 @@ def get_env(key: str) -> Optional[str]:
 DISCORD_TOKEN = get_env('DISCORD_TOKEN')
 OPENAI_API_KEY = get_env('OPENAI_API_KEY')
 MONGODB_URI = get_env('MONGODB_URI')
+GPT4_BASE_URL = get_env('GPT4_BASE_URL')
+TELEGRAM_TOKEN = get_env('TELEGRAM_TOKEN')
 
 DOWNLOAD_FOLDER = 'downloads'
 

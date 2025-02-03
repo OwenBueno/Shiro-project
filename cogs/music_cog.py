@@ -6,7 +6,7 @@ from utils.delete_utils import delete_file
 from commands.music_commands import song_queues, play_next
 from datetime import datetime, timedelta
 import asyncio
-import datetime
+import random
 
 class MusicCog(commands.Cog):
     def __init__(self, bot):
@@ -26,7 +26,7 @@ class MusicCog(commands.Cog):
                 if self.last_activity.get(guild_id) is None:
                     self.last_activity[guild_id] = datetime.now()
                 # Check if inactive for more than 5 minutes
-                elif datetime.now() - self.last_activity[guild_id] > timedelta(minutes=5):
+                elif datetime.now() - self.last_activity[guild_id] > timedelta(minutes=1):
                     # Stop any ongoing playback
                     if vc.is_playing() or vc.is_paused():
                         vc.stop()
@@ -201,9 +201,63 @@ class MusicCog(commands.Cog):
         if guild_id not in song_queues or not song_queues[guild_id]:
             await ctx.send("The queue is currently empty.")
         else:
-            queue_list = "\n".join([f"{i + 1}. {url}" for i, url in enumerate(song_queues[guild_id])])
-            self.last_activity[ctx.guild.id] = datetime.now()
-            await ctx.send(f"**Current queue:**\n{queue_list}")
+            async with ctx.typing():
+                temp_ytdl = get_temp_ytdl()
+                queue_list = []
+                for i, url in enumerate(song_queues[guild_id]):
+                    try:
+                        # Extract title without downloading
+                        info = await asyncio.to_thread(temp_ytdl.extract_info, url, download=False)
+                        title = info.get('title', 'Unknown Title')
+                        queue_list.append(f"{i + 1}. {title}")
+                    except Exception as e:
+                        queue_list.append(f"{i + 1}. {url} (Could not fetch title)")
+                
+                formatted_queue = "\n".join(queue_list)
+                self.last_activity[ctx.guild.id] = datetime.now()
+                await ctx.send(f"**Current queue:**\n{formatted_queue}")
+
+    @commands.command(name='esquizo', help='Shuffles the current music queue randomly')
+    async def shuffle(self, ctx):
+        guild_id = ctx.guild.id
+        
+        if guild_id not in song_queues or not song_queues[guild_id]:
+            await ctx.send("The queue is empty. Nothing to shuffle! 🎲")
+            return
+            
+        # Convert deque to list for shuffling
+        queue_list = list(song_queues[guild_id])
+        
+        # If there's currently playing song, don't shuffle it
+        if ctx.voice_client and (ctx.voice_client.is_playing() or ctx.voice_client.is_paused()):
+            current_song = queue_list.pop(0)
+            random.shuffle(queue_list)
+            queue_list.insert(0, current_song)
+        else:
+            random.shuffle(queue_list)
+            
+        # Clear the current queue and add shuffled songs
+        song_queues[guild_id].clear()
+        song_queues[guild_id].extend(queue_list)
+        
+        # Update last activity
+        self.last_activity[ctx.guild.id] = datetime.now()
+        
+        # Show the new shuffled queue with titles
+        async with ctx.typing():
+            temp_ytdl = get_temp_ytdl()
+            shuffled_titles = []
+            for i, url in enumerate(queue_list):
+                try:
+                    # Extract title without downloading
+                    info = await asyncio.to_thread(temp_ytdl.extract_info, url, download=False)
+                    title = info.get('title', 'Unknown Title')
+                    shuffled_titles.append(f"{i + 1}. {title}")
+                except Exception as e:
+                    shuffled_titles.append(f"{i + 1}. {url} (Could not fetch title)")
+            
+            formatted_queue = "\n".join(shuffled_titles)
+            await ctx.send(f"**🎲 Queue has been shuffled!**\nNew queue order:\n{formatted_queue}")
 
 async def setup(bot):
     await bot.add_cog(MusicCog(bot))
