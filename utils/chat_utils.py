@@ -18,7 +18,6 @@ from contextlib import asynccontextmanager
 import json
 import tenacity
 
-# Configurar logging
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -88,15 +87,12 @@ class ChatManager:
     async def conversation_lock(self, user_id):
         try:
             if user_id in self.active_conversations:
-                # Wait for previous conversation to complete
                 await self.active_conversations[user_id]
             
-            # Create a new future for this conversation
             future = asyncio.Future()
             self.active_conversations[user_id] = future
             yield
         finally:
-            # Mark conversation as complete
             if user_id in self.active_conversations:
                 self.active_conversations[user_id].set_result(True)
                 del self.active_conversations[user_id]
@@ -215,7 +211,7 @@ Please remember you're talking to this specific person."""
                 async with self.semaphore:
                     try:
                         async with httpx.AsyncClient(timeout=self.timeouts) as client:
-                            for attempt in range(3):  # Intentos adicionales a nivel de aplicación
+                            for attempt in range(3):
                                 try:
                                     response = await self._make_api_call(client, messages)
                                     data = response.json()
@@ -228,10 +224,10 @@ Please remember you're talking to this specific person."""
                                     return data['choices'][0]['message']['content']
                                     
                                 except (httpx.TimeoutException, ChatError) as e:
-                                    if attempt == 2:  # Último intento
+                                    if attempt == 2:
                                         raise
                                     logger.warning(f"Reintento {attempt + 1} para usuario {user_id}")
-                                    await asyncio.sleep(2 ** attempt)  # Backoff exponencial
+                                    await asyncio.sleep(2 ** attempt)
                                     
                     except json.JSONDecodeError as e:
                         logger.error(f"Error decodificando respuesta JSON: {str(e)}")
@@ -252,16 +248,14 @@ Please remember you're talking to this specific person."""
         try:
             await self.ensure_db_connection()
             
-            # Ensure limit is an integer
             try:
                 limit = int(limit)
             except (TypeError, ValueError):
-                limit = 100  # Default if conversion fails
+                limit = 100
             
             logger.info(f"Obteniendo historial de conversación global (límite: {limit})")
-            # Get global message history
             history = await self.db.conversations.find(
-                {},  # No user filter - get all messages
+                {},
                 {'_id': 0, 'role': 1, 'content': 1, 'user_name': 1}
             ).sort('timestamp', -1).limit(limit).to_list(None)
 
@@ -273,14 +267,12 @@ Please remember you're talking to this specific person."""
                 logger.debug("No hay historial, retornando contexto inicial")
                 context = INITIAL_CONTEXT.copy()
                 if user_name:
-                    # Add current speaker context
                     context.append({
                         "role": "system",
                         "content": f"The current speaker is: {user_name}"
                     })
                 return context
             
-            # Format messages with speaker information
             formatted_history = []
             for msg in history:
                 if msg['role'] == 'user' and msg.get('user_name'):
@@ -299,7 +291,6 @@ Please remember you're talking to this specific person."""
                 logger.info("Se excedió el límite de tokens, generando resumen")
                 summary = await self.summarize_context(formatted_history)
                 if summary:
-                    # Clear all old messages and store summary
                     await self.db.conversations.delete_many({})
                     await self.db.conversations.insert_one({
                         'role': 'system',

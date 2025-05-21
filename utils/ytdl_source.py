@@ -4,7 +4,13 @@ from config import YTDL_FORMAT_OPTIONS, FFMPEG_OPTIONS, DOWNLOAD_FOLDER
 import os
 import asyncio
 
-ytdl = youtube_dl.YoutubeDL(YTDL_FORMAT_OPTIONS)
+# Create a copy of the format options for the main ytdl instance
+main_ytdl_opts = YTDL_FORMAT_OPTIONS.copy()
+# Ensure extract_flat is not True for the main instance, we want full processing for downloads
+if 'extract_flat' in main_ytdl_opts:
+    del main_ytdl_opts['extract_flat'] # Or set to False, but removing ensures it uses yt-dlp default
+
+ytdl = youtube_dl.YoutubeDL(main_ytdl_opts)
 
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, filename, volume=0.5):
@@ -12,15 +18,17 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.data = data
         self.title = data.get('title')
         self.url = data.get('url')
+        self.webpage_url = data.get('webpage_url')
+        self.uploader = data.get('uploader')
+        self.duration = data.get('duration')
+        self.thumbnail = data.get('thumbnail')
         self.filename = filename
 
     @classmethod
     async def from_url(cls, url, *, download=True):
-        # Ensure the download folder exists
         if not os.path.exists(DOWNLOAD_FOLDER):
             os.makedirs(DOWNLOAD_FOLDER)
 
-        # Extract info and download
         data = await asyncio.to_thread(ytdl.extract_info, url, download=download)
 
         if 'entries' in data:
